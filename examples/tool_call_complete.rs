@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let toolbox = build_toolbox();
+    let toolbox = build_toolbox().await?;
 
     let result = chat_complete(
         GPT_4O_MINI_MODEL,
