@@ -1,4 +1,4 @@
-use crate::tools::ToolBox;
+use crate::{agent::ExecutionContext, tools::ToolBox};
 use async_openai::types::chat::{
     ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessageArgs,
     ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
@@ -13,6 +13,8 @@ pub async fn chat_complete(
 ) -> anyhow::Result<String> {
     let client = async_openai::Client::new();
     let mut messages = vec![];
+
+    let context = ExecutionContext::new();
 
     if let Some(system) = system {
         messages.push(
@@ -76,7 +78,7 @@ pub async fn chat_complete(
                     tracing::info!("Tool call: {function_name}({arguments})");
 
                     let tool_result = match toolbox.get(function_name) {
-                        Some(tool) => match tool.execute(arguments).await {
+                        Some(tool) => match tool.execute(arguments, &context).await {
                             Ok(result) => {
                                 tracing::info!("Tool result: {result}");
                                 result

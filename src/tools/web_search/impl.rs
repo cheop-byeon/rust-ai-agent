@@ -1,10 +1,10 @@
 use schemars::schema_for;
 use serde_json::Value;
 
-use crate::tools::{
+use crate::{agent::ExecutionContext, tools::{
     tool::Tool,
     web_search::execute::{WebSearchArgs, search_web},
-};
+}};
 
 pub struct WebSearchTool;
 
@@ -23,7 +23,7 @@ impl Tool for WebSearchTool {
             .expect("Failed to serialize WebSearchArgs schema")
     }
 
-    async fn execute(&self, args_json: &str) -> anyhow::Result<String> {
+    async fn execute(&self, args_json: &str, _context: &ExecutionContext) -> anyhow::Result<String> {
         let args: WebSearchArgs = serde_json::from_str(args_json)?;
         match search_web(args).await {
             Ok(output) => Ok(serde_json::to_string(&output)?),
