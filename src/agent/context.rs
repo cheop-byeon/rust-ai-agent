@@ -5,6 +5,21 @@ use uuid::Uuid;
 
 use super::event::Event;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+}
+
+impl TokenUsage {
+    pub fn add(&mut self, prompt_tokens: u32, completion_tokens: u32, total_tokens: u32) {
+        self.prompt_tokens += prompt_tokens;
+        self.completion_tokens += completion_tokens;
+        self.total_tokens += total_tokens;
+    }
+}
+
 #[derive(Debug)]
 pub struct ExecutionContext {
     pub execution_id: String,
@@ -12,6 +27,7 @@ pub struct ExecutionContext {
     pub current_step: u32,
     pub state: HashMap<String, Value>,
     pub final_result: Option<String>,
+    pub usage: TokenUsage
 }
 
 impl ExecutionContext {
@@ -22,6 +38,7 @@ impl ExecutionContext {
             current_step: 0,
             state: HashMap::new(),
             final_result: None,
+            usage: TokenUsage::default()
         }
     }
 

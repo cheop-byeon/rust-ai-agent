@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ai_agent::{agent::Agent, constant::GPT_4O_MINI_MODEL, tools::build_toolbox};
 use chrono::Local;
 use tracing::Level;
@@ -12,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let toolbox = build_toolbox().await?;
+    let toolbox = Arc::new(build_toolbox().await?);
 
     let now = Local::now();
     let current_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -35,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         current_time
     );
 
-    let agent = Agent::new(GPT_4O_MINI_MODEL, Some(&instructions), &toolbox).with_max_steps(8);
+    let agent = Agent::new(GPT_4O_MINI_MODEL, Some(&instructions), toolbox).with_max_steps(8);
 
     println!("\n=== Agent::run 测试 ===");
     let result = agent
@@ -59,6 +61,13 @@ async fn main() -> anyhow::Result<()> {
         result.context.current_step,
         result.context.events.len(),
         result.context.execution_id
+    );
+
+    println!(
+        "token 用量：prompt={} completion={} total={}",
+        result.context.usage.prompt_tokens,
+        result.context.usage.completion_tokens,
+        result.context.usage.total_tokens
     );
 
     println!("{:#?}", result.context);

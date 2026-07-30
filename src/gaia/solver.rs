@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Ok;
 use async_openai::types::chat::{
     ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
@@ -5,7 +7,7 @@ use async_openai::types::chat::{
 };
 use backon::{ExponentialBuilder, Retryable};
 
-use crate::gaia::models::GaiaOutput;
+use crate::{agent::Agent, gaia::models::GaiaOutput, tools::ToolBox};
 
 pub async fn solve_problem_with_retry(
     model: &str,
@@ -68,4 +70,15 @@ async fn solve_problem(model: &str, system: &str, prompt: &str) -> anyhow::Resul
     let output: GaiaOutput = serde_json::from_str(&content)?;
 
     Ok(output)
+}
+
+pub async fn solve_problem_with_tools(
+    model: &str,
+    system: &str,
+    prompt: &str,
+    toolbox: Arc<ToolBox>,
+) -> anyhow::Result<GaiaOutput> {
+    let agent = Agent::new(model, Some(system), toolbox).with_max_steps(15);
+    let result = agent.run_structured::<GaiaOutput>(prompt).await?;
+    Ok(result.output)
 }

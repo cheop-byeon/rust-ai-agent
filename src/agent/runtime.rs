@@ -1,10 +1,9 @@
+use std::sync::Arc;
+
 use async_openai::types::chat::{
-    ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls,
-    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
-    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
-    ChatCompletionRequestUserMessageArgs, ChatCompletionTools, CreateChatCompletionRequestArgs,
-    FunctionCall,
+    ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequestArgs, FunctionCall, FunctionObjectArgs, ToolChoiceOptions,
 };
+use backon::{ExponentialBuilder, Retryable};
 
 use crate::tools::ToolBox;
 
@@ -19,18 +18,28 @@ pub struct AgentResult {
     pub context: ExecutionContext,
 }
 
-pub struct Agent<'a> {
-    model: &'a str,
-    instructions: Option<&'a str>,
-    toolbox: &'a ToolBox,
+#[derive(Debug)]
+pub struct StructuredAgentResult<T> {
+    pub output: T,
+    pub context: ExecutionContext,
+}
+
+pub struct Agent {
+    model: String,
+    instructions: Option<String>,
+    toolbox: Arc<ToolBox>,
     max_steps: u32,
 }
 
-impl<'a> Agent<'a> {
-    pub fn new(model: &'a str, instructions: Option<&'a str>, toolbox: &'a ToolBox) -> Self {
+impl Agent {
+    pub fn new(
+        model: impl Into<String>,
+        instructions: Option<impl Into<String>>,
+        toolbox: Arc<ToolBox>,
+    ) -> Self {
         Self {
-            model,
-            instructions,
+            model: model.into(),
+            instructions: instructions.map(Into::into),
             toolbox,
             max_steps: 10,
         }
@@ -78,13 +87,23 @@ impl<'a> Agent<'a> {
             let messages = self.build_messages(&context)?;
 
             let request = CreateChatCompletionRequestArgs::default()
-                .model(self.model)
+                .model(self.model.clone())
                 .messages(messages)
                 .tools(tool_definitions.clone())
                 .max_tokens(2048u32)
                 .build()?;
 
-            let response = client.chat().create(request).await?;
+            let response = (|| async { client.chat().create(request.clone()).await })
+                .retry(ExponentialBuilder::default().with_max_times(3))
+                .await?;
+
+            if let Some(usage) = &response.usage {
+                context.usage.add(
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    usage.total_tokens,
+                );
+            }
 
             let message = response
                 .choices
@@ -116,6 +135,120 @@ impl<'a> Agent<'a> {
                 });
             }
 
+            context.increment_step();
+        }
+    }
+
+    pub async fn run_structured<T>(
+        &self,
+        user_input: &str,
+    ) -> anyhow::Result<StructuredAgentResult<T>>
+    where
+        T: schemars::JsonSchema + serde::de::DeserializeOwned,
+    {
+        let mut context = ExecutionContext::new();
+
+        context.add_event(Event::new(
+            context.execution_id.clone(),
+            "user",
+            vec![ContentItem::Message {
+                role: "user".to_string(),
+                content: user_input.to_string(),
+            }],
+        ));
+
+        let client = async_openai::Client::new();
+
+        let mut tool_definitions: Vec<ChatCompletionTools> = self
+            .toolbox
+            .values()
+            .filter_map(|t| match t.definition() {
+                Ok(def) => Some(def),
+                Err(e) => {
+                    tracing::warn!("Skip tool {}, failed to get its definition: {e}", t.name());
+                    None
+                }
+            })
+            .collect();
+        tool_definitions.push(final_answer_tool_definition::<T>()?);
+
+        loop {
+            if context.current_step >= self.max_steps {
+                anyhow::bail!(
+                    "Agent exceeded the maximum of {} steps without a final answer",
+                    self.max_steps
+                );
+            }
+
+            let messages = self.build_messages(&context)?;
+
+            let request = CreateChatCompletionRequestArgs::default()
+                .model(self.model.clone())
+                .messages(messages)
+                .tools(tool_definitions.clone())
+                .tool_choice(ChatCompletionToolChoiceOption::Mode(
+                    ToolChoiceOptions::Required,
+                ))
+                .max_tokens(2048u32)
+                .build()?;
+
+            let response = (|| async { client.chat().create(request.clone()).await })
+                .retry(ExponentialBuilder::default().with_max_times(3))
+                .await?;
+
+            if let Some(usage) = &response.usage {
+                context.usage.add(
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    usage.total_tokens,
+                );
+            }
+
+            let message = response
+                .choices
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("No choices in response"))?
+                .message;
+
+            let tool_calls = message.tool_calls.ok_or_else(|| {
+                anyhow::anyhow!("Model returned no tool call despite tool_choice = required")
+            })?;
+
+            self.record_tool_calls(&mut context, &tool_calls);
+
+            let final_call = tool_calls.iter().find_map(|tool_call| match tool_call {
+                ChatCompletionMessageToolCalls::Function(f)
+                    if f.function.name == "final_answer" =>
+                {
+                    Some(f)
+                }
+                _ => None,
+            });
+
+            if let Some(final_call) = final_call {
+                let raw_arguments = final_call.function.arguments.clone();
+                let parsed: T = serde_json::from_str(&raw_arguments)?;
+
+                context.add_event(Event::new(
+                    context.execution_id.clone(),
+                    "tool",
+                    vec![ContentItem::ToolResult {
+                        tool_call_id: final_call.id.clone(),
+                        name: "final_answer".to_string(),
+                        status: ToolResultStatus::Success,
+                        content: raw_arguments.clone(),
+                    }],
+                ));
+                context.final_result = Some(raw_arguments);
+
+                return Ok(StructuredAgentResult {
+                    output: parsed,
+                    context,
+                });
+            }
+
+            self.execute_tool_calls(&mut context, &tool_calls).await;
             context.increment_step();
         }
     }
@@ -201,10 +334,10 @@ impl<'a> Agent<'a> {
     ) -> anyhow::Result<Vec<ChatCompletionRequestMessage>> {
         let mut messages = Vec::new();
 
-        if let Some(system) = self.instructions {
+        if let Some(system) = &self.instructions {
             messages.push(
                 ChatCompletionRequestSystemMessageArgs::default()
-                    .content(system)
+                    .content(system.as_str())
                     .build()?
                     .into(),
             );
@@ -274,4 +407,20 @@ impl<'a> Agent<'a> {
 
         Ok(messages)
     }
+}
+
+fn final_answer_tool_definition<T: schemars::JsonSchema>() -> anyhow::Result<ChatCompletionTools> {
+    let schema = schemars::schema_for!(T);
+    let schema_json = serde_json::to_value(&schema)?;
+
+    let function = FunctionObjectArgs::default()
+        .name("final_answer")
+        .description("Return the final structured answer matching the required schema.")
+        .parameters(schema_json)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build final_answer tool definition: {e}"))?;
+
+    Ok(ChatCompletionTools::Function(ChatCompletionTool {
+        function,
+    }))
 }
