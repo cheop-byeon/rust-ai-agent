@@ -3,10 +3,6 @@ use chrono::Local;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-/// 跟 simple_agent_loop.rs 是同一个测试场景，
-/// 区别是这里用新的 Agent::run 代替了裸的 chat_complete，
-/// 好处是这次执行的完整轨迹（ExecutionContext）现在可以拿到手，
-/// 而且有了步数上限，不会无限循环下去。
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv()?;

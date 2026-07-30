@@ -14,15 +14,11 @@ use super::{
 };
 
 #[derive(Debug)]
-/// 一次 Agent 执行的结果：最终答案 + 完整的执行轨迹（ExecutionContext），
-/// 方便事后调试、查看每一步到底发生了什么。
 pub struct AgentResult {
     pub output: String,
     pub context: ExecutionContext,
 }
 
-/// 编排者：创建 ExecutionContext，驱动 think-act 循环，
-/// 直到拿到最终答案，或者超出步数上限。
 pub struct Agent<'a> {
     model: &'a str,
     instructions: Option<&'a str>,
@@ -40,7 +36,6 @@ impl<'a> Agent<'a> {
         }
     }
 
-    /// 覆盖默认的步数上限（默认 10），避免 agent 陷入死循环。
     pub fn with_max_steps(mut self, max_steps: u32) -> Self {
         self.max_steps = max_steps;
         self
@@ -125,7 +120,6 @@ impl<'a> Agent<'a> {
         }
     }
 
-    /// 把模型这一轮请求调用的工具，记成一个 "agent" 作者的 Event。
     fn record_tool_calls(
         &self,
         context: &mut ExecutionContext,
@@ -151,9 +145,6 @@ impl<'a> Agent<'a> {
         ));
     }
 
-    /// 真正去执行这一轮的每一个工具调用，把结果记成一个 "tool" 作者的 Event。
-    /// 这里把 &ExecutionContext 传给每个工具 —— 目前我们的工具都还不需要读 context，
-    /// 但接口已经留好了。
     async fn execute_tool_calls(
         &self,
         context: &mut ExecutionContext,
@@ -204,8 +195,6 @@ impl<'a> Agent<'a> {
         ));
     }
 
-    /// 把 ExecutionContext 里的完整历史，翻译成这一轮要发给模型的消息列表。
-    /// 以后要做上下文裁剪/摘要，只需要改这一个函数，不用动别的地方。
     fn build_messages(
         &self,
         context: &ExecutionContext,
@@ -253,9 +242,6 @@ impl<'a> Agent<'a> {
                             },
                         );
 
-                        // 同一轮里模型可能一次请求多个工具调用，
-                        // 这些 ToolCall 要合并进同一条 assistant 消息里，
-                        // 否则 API 会认为这是好几条不同的助手消息。
                         if let Some(ChatCompletionRequestMessage::Assistant(last)) =
                             messages.last_mut()
                         {
