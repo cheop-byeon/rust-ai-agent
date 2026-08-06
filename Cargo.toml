@@ -23,6 +23,10 @@ path = "examples/agent_run.rs"
 name = "search_web"
 path = "examples/search_web.rs"
 
+[[example]]
+name = "file_explorer"
+path = "examples/file_explorer.rs"
+
 [dependencies]
 anyhow = "1.0.102"
 async-openai = { version = "0.41.0", features = [
@@ -32,7 +36,9 @@ async-openai = { version = "0.41.0", features = [
 async-stream = "0.3.6"
 async-trait = "0.1.91"
 backon = "1.6.0"
+base64 = "0.23.1"
 chrono = "0.4.45"
+csv = "1.4.0"
 dotenvy = "0.15.7"
 futures = "0.3.32"
 reqwest = { version = "0.13.4", features = ["json"] }
@@ -51,3 +57,4 @@ tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 uuid = { version = "1.24.0", features = ["v4"] }
+zip = "8.6.0"
