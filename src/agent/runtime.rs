@@ -1,11 +1,19 @@
 use std::sync::Arc;
 
 use async_openai::types::chat::{
-    ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequestArgs, FunctionCall, FunctionObjectArgs, ToolChoiceOptions,
+    ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls,
+    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
+    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
+    ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionToolChoiceOption,
+    ChatCompletionTools, CreateChatCompletionRequestArgs, FunctionCall, FunctionObjectArgs,
+    ToolChoiceOptions,
 };
 use backon::{ExponentialBuilder, Retryable};
+use serde_json::Value;
 
-use crate::tools::ToolBox;
+use crate::{
+    agent::callback::{AfterToolCallback, BeforeToolCallback, ToolCallView}, tools::ToolBox,
+};
 
 use super::{
     context::ExecutionContext,
@@ -29,6 +37,8 @@ pub struct Agent {
     instructions: Option<String>,
     toolbox: Arc<ToolBox>,
     max_steps: u32,
+    before_tool_callbacks: Vec<Arc<dyn BeforeToolCallback>>,
+    after_tool_callbacks: Vec<Arc<dyn AfterToolCallback>>,
 }
 
 impl Agent {
@@ -42,11 +52,23 @@ impl Agent {
             instructions: instructions.map(Into::into),
             toolbox,
             max_steps: 10,
+            before_tool_callbacks: Vec::new(),
+            after_tool_callbacks: Vec::new(),
         }
     }
 
     pub fn with_max_steps(mut self, max_steps: u32) -> Self {
         self.max_steps = max_steps;
+        self
+    }
+
+    pub fn with_before_tool_callback(mut self, callback: Arc<dyn BeforeToolCallback>) -> Self {
+        self.before_tool_callbacks.push(callback);
+        self
+    }
+
+    pub fn with_after_tool_callback(mut self, callback: Arc<dyn AfterToolCallback>) -> Self {
+        self.after_tool_callbacks.push(callback);
         self
     }
 
@@ -294,25 +316,54 @@ impl Agent {
 
             tracing::info!("Tool call: {function_name}({arguments})");
 
-            let (status, content) = match self.toolbox.get(function_name) {
-                Some(tool) => match tool.execute(arguments, context).await {
-                    Ok(result) => {
-                        tracing::info!("Tool result: {result}");
-                        (ToolResultStatus::Success, result)
-                    }
-                    Err(err) => {
-                        let msg = format!("Tool execution error: {err}");
+            let arguments_value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
+            let view = ToolCallView {
+                tool_call_id: &function_call.id,
+                name: function_name,
+                arguments: &arguments_value,
+            };
+
+            let mut short_circuited = None;
+            for callback in &self.before_tool_callbacks {
+                if let Some(result) = callback.call(context, view).await {
+                    short_circuited = Some(result);
+                    break;
+                }
+            }
+
+            let (mut status, mut content) = match short_circuited {
+                Some(result) => (ToolResultStatus::Success, result),
+                None => match self.toolbox.get(function_name) {
+                    Some(tool) => match tool.execute(arguments, context).await {
+                        Ok(result) => {
+                            tracing::info!("Tool result: {result}");
+                            (ToolResultStatus::Success, result)
+                        }
+                        Err(err) => {
+                            let msg = format!("Tool execution error: {err}");
+                            tracing::error!("{msg}");
+                            (ToolResultStatus::Error, msg)
+                        }
+                    },
+                    None => {
+                        let msg = format!("Tool execution error: unknown tool {function_name}");
                         tracing::error!("{msg}");
                         (ToolResultStatus::Error, msg)
                     }
                 },
-                None => {
-                    let msg = format!("Tool execution error: unknown tool {function_name}");
-                    tracing::error!("{msg}");
-                    (ToolResultStatus::Error, msg)
-                }
             };
 
+            for callback in &self.after_tool_callbacks {
+                if let Some((new_status, new_content)) = callback
+                    .call(context, &function_call.id, function_name, status, &content)
+                    .await
+                {
+                    status = new_status;
+                    content = new_content;
+                    break;
+                }
+            }
+            
             result_items.push(ContentItem::ToolResult {
                 tool_call_id: function_call.id.clone(),
                 name: function_name.clone(),

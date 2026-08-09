@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ai_agent::{agent::Agent, constant::{GPT_4O_MINI_MODEL, VISION_MODEL}, tools::build_file_explorer_toolbox};
+use ai_agent::{agent::Agent, callback::{approval::ApprovalCallback, search_compressor::SearchCompressorCallback}, constant::{GPT_4O_MINI_MODEL, VISION_MODEL}, tools::build_file_explorer_toolbox};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
@@ -22,14 +22,16 @@ async fn main() -> anyhow::Result<()> {
 最后再给出结论。不要跳过探索步骤直接猜答案。"#;
 
     let agent = Agent::new(GPT_4O_MINI_MODEL, Some(instructions), toolbox)
-        .with_max_steps(20);
-        // // 高危操作先过人工审批 —— delete_file 在名单里，其他文件工具都不需要审批
-        // .with_before_tool_callback(Arc::new(ApprovalCallback::new(["delete_file"])))
-        // // web_search 结果太长时自动向量压缩，不用每次手动处理
-        // .with_after_tool_callback(Arc::new(SearchCompressorCallback));
+        .with_max_steps(20)
+        // 高危操作先过人工审批 —— delete_file 在名单里，其他文件工具都不需要审批
+        .with_before_tool_callback(Arc::new(ApprovalCallback::new(["delete_file"])))
+        // web_search 结果太长时自动向量压缩，不用每次手动处理
+        .with_after_tool_callback(Arc::new(SearchCompressorCallback));
 
     let result = agent
-        .run("这个压缩包里，哪个候选人最符合职位要求？压缩包路径：/Users/dave/Desktop/example/candidates.zip")
+        .run(r#"读一下这个压缩包里的候选人信息和职位要求，判断出最合适的候选人。
+确认完之后，把 job_description.txt 删掉，因为信息已经用完了，不需要再占地方。
+压缩包路径：/Users/dave/Desktop/example/candidates.zip"#)
         .await?;
 
     println!("回答: {}", result.output);

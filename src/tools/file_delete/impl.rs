@@ -25,8 +25,22 @@ impl Tool for DeleteFileTool {
         serde_json::to_value(schemars::schema_for!(DeleteFileArgs)).expect("schema is always serializable")
     }
 
-    async fn execute(&self, args_json: &str, _context: &ExecutionContext) -> anyhow::Result<String> {
+    async fn execute(
+        &self,
+        args_json: &str,
+        _context: &ExecutionContext,
+    ) -> anyhow::Result<String> {
         let args: DeleteFileArgs = serde_json::from_str(args_json)?;
-        Ok(format!("File {} has been deleted.", args.file_path))
+        tracing::info!("🗑️  Attempting to delete: {}", args.file_path);
+        match std::fs::remove_file(&args.file_path) {
+            Ok(()) => {
+                tracing::info!("✅ Deleted: {}", args.file_path);
+                Ok(format!("File {} has been deleted.", args.file_path))
+            }
+            Err(e) => {
+                tracing::error!("❌ Failed to delete {}: {e}", args.file_path);
+                Err(anyhow::anyhow!("Failed to delete {}: {e}", args.file_path))
+            }
+        }
     }
 }
