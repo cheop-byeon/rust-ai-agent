@@ -16,27 +16,29 @@ async fn main() -> anyhow::Result<()> {
 
     let toolbox = Arc::new(build_file_explorer_toolbox(VISION_MODEL));
 
-    let instructions = r#"你是一位善于探索文件的助手。
-拿到一个压缩包时，先解压，再用 list_files 看目录结构，
-靠文件名判断哪些文件可能相关，用 read_file 或 read_image 逐一确认，
-最后再给出结论。不要跳过探索步骤直接猜答案。"#;
+    let instructions = r#"You are an assistant skilled at exploring files.
+When you receive an archive, extract it first, then use list_files to inspect the directory structure.
+Use filenames to identify potentially relevant files, and confirm them one by one with read_file or read_image.
+Only then provide a conclusion. Do not skip the exploration steps and guess."#;
 
     let agent = Agent::new(GPT_4O_MINI_MODEL, Some(instructions), toolbox)
         .with_max_steps(20)
-        // 高危操作先过人工审批 —— delete_file 在名单里，其他文件工具都不需要审批
+        // Dangerous operations require human approval. delete_file is on the
+        // list; the other file tools do not require approval.
         .with_before_tool_callback(Arc::new(ApprovalCallback::new(["delete_file"])))
-        // web_search 结果太长时自动向量压缩，不用每次手动处理
+        // Compress long web_search results automatically instead of handling
+        // them manually each time.
         .with_after_tool_callback(Arc::new(SearchCompressorCallback));
 
     let result = agent
-        .run(r#"读一下这个压缩包里的候选人信息和职位要求，判断出最合适的候选人。
-确认完之后，把 job_description.txt 删掉，因为信息已经用完了，不需要再占地方。
-压缩包路径：/Users/dave/Desktop/example/candidates.zip"#)
+        .run(r#"Read the candidate information and job requirements in this archive and identify the best candidate.
+After confirming the result, delete job_description.txt because it is no longer needed.
+Archive path: /Users/dave/Desktop/example/candidates.zip"#)
         .await?;
 
-    println!("回答: {}", result.output);
+    println!("Answer: {}", result.output);
     println!(
-        "\n本次执行一共走了 {} 步，记录了 {} 条 Event",
+        "\nThis run took {} steps and recorded {} events",
         result.context.current_step,
         result.context.events.len()
     );

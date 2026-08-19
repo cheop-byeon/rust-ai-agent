@@ -64,7 +64,7 @@ pub async fn gaia_level1_experiment() -> anyhow::Result<()> {
         }
     }
 
-    tracing::info!("=== 带工具 vs 不带工具 ===");
+    tracing::info!("=== With tools vs without tools ===");
     for group in ["with_tools", "without_tools"] {
         if let Some(evals) = results.get(group) {
             let correct = evals.iter().filter(|e| e.correct).count();

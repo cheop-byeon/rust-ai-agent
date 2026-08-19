@@ -20,16 +20,16 @@ async fn main() -> anyhow::Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     let prompts = vec![
-        "用三句话解释 Rust 的所有权机制",
-        "什么是异步编程，和多线程有什么区别",
-        "解释一下 TCP 三次握手的过程",
-        "用简单的话说明什么是大语言模型",
-        "Rust 中 Arc 和 Rc 的区别是什么",
-        "什么是 RAG，为什么 AI 应用里常用它",
-        "解释 HTTP 和 HTTPS 的区别",
-        "什么是死锁，怎么避免",
-        "用生活比喻解释什么是递归",
-        "为什么说 Rust 没有 GC 但内存还是安全的",
+        "Explain Rust ownership in three sentences",
+        "What is asynchronous programming, and how does it differ from multithreading?",
+        "Explain the TCP three-way handshake",
+        "Explain what a large language model is in simple terms",
+        "What is the difference between Arc and Rc in Rust?",
+        "What is RAG, and why is it common in AI applications?",
+        "Explain the difference between HTTP and HTTPS",
+        "What is a deadlock, and how can it be prevented?",
+        "Explain recursion using an everyday analogy",
+        "Why is Rust memory-safe even though it has no GC?",
     ];
 
     let mut set = JoinSet::new();
@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("\n\n{prompt}");
                 let permit = get_semaphore().acquire().await?;
                 let output =
-                    chat_stream_with_retry(GPT_4O_MINI_MODEL, Some("你是一个全能助理"), prompt)
+                    chat_stream_with_retry(GPT_4O_MINI_MODEL, Some("You are a versatile assistant."), prompt)
                         .await?;
                 drop(permit);
                 Ok::<_, anyhow::Error>((prompt, output))

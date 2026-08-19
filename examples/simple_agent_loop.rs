@@ -12,116 +12,112 @@ async fn main() -> anyhow::Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // build_toolbox 现在是 async 的：它会顺便把 expense_mcp_server
-    // 拉起来、握手、拿到它暴露的工具列表，跟 calculator / web_search
-    // 一起塞进同一个工具箱里
+   // build_toolbox is async: it starts expense_mcp_server, performs the
+   // handshake, discovers its tools, and adds them to the calculator and
+   // web_search tools in the same toolbox.
     let toolbox = build_toolbox().await?;
 
-    // 当前时间
+   // Current time
     let now = Local::now();
     let current_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
 
     let system_prompt = format!(
-        r#"你是一位专业、可靠、乐于帮助用户的 AI 助手。
+        r#"You are a professional, reliable, and helpful AI assistant.
 
-当前本地时间：{}
+Current local time: {}
 
-请始终将"今天"、"昨天"、"明天"、"本周"、"本月"、"上个月"等相对时间，
-解释为相对于上面的当前时间。
+Always interpret relative time expressions such as "today", "yesterday", "tomorrow",
+"this week", "this month", and "last month" relative to the current time above.
 
-你可以使用多个工具来帮助完成任务。
+You can use multiple tools to complete a task.
 
-工具使用原则：
+Tool usage rules:
 
-1. 如果问题可以直接回答，则直接回答，不要调用工具。
+1. Answer directly when the question can be answered without a tool.
 
-2. 如果用户的问题需要最新的信息，例如：
-   - 新闻
-   - 天气
-   - 汇率
-   - 股票
-   - 网络搜索
-   等，请使用 Web Search 工具。
+2. Use Web Search when the user needs current information, such as:
+   - news
+   - weather
+   - exchange rates
+   - stocks
+   - web searches
 
-3. 如果需要进行数学计算、金额计算、百分比计算、
-   或者任何要求结果精确的计算，请使用 Calculator 工具。
+3. Use Calculator for mathematical, monetary, percentage, or any other precise calculations.
 
-4. 当用户需要查询、统计、新增、修改、删除费用记录时，
-   请使用 Expense MCP 提供的工具，例如：
+4. Use the Expense MCP tools when the user needs to query, summarize, create, modify, or delete expense records, such as:
    - create_expense
    - list_expenses
    - get_summary
-   等。
+   and others.
 
-5. 不要猜测工具可以提供的数据。
+5. Do not guess data that a tool can provide.
 
-6. 如果工具能够得到答案，就应该调用工具，
-   不要回答"我不知道"。
+6. If a tool can provide the answer, call it instead of answering "I don't know".
 
-7. 工具返回结果以后，请直接根据工具结果生成自然、简洁、准确的回答，
-   不要把工具调用过程告诉用户。
+7. After a tool returns, answer naturally, concisely, and accurately without describing the tool-call process.
 
-请始终优先完成用户的任务，而不是刻意调用工具。"#,
+Always prioritize completing the user's task over calling tools unnecessarily."#,
         current_time
     );
 
-    println!("\n=== 测试 0：Agent loop 测试 ===");
+   println!("\n=== Test 0: Agent loop ===");
     let result = chat_complete(
         GPT_4O_MINI_MODEL,
         Some(&system_prompt),
-        r"我想买一台 Mac Mini M4。
+      r"I want to buy a Mac Mini M4.
 
-请帮我做一个购买分析：
+   Please help me analyze the purchase:
 
-1. 使用搜索工具查询目前 Mac Mini M4 的价格。
-2. 查询我过去三个月的 Software 分类支出。
-3. 计算：
-   - Mac Mini M4 价格占我过去三个月 Software 支出的多少倍。
-   - 如果我每个月节省500元，需要多少个月才能攒够购买它。
-4. 根据我的消费情况，给我一个是否应该购买的建议。
+   1. Use the search tool to find the current price of the Mac Mini M4.
+   2. Query my Software expenses from the past three months.
+   3. Calculate:
+      - how many times the Mac Mini M4 price is greater than those expenses;
+      - how many months I would need to save 500 yuan per month to afford it.
+   4. Based on my spending, recommend whether I should buy it.
 
-所有价格和消费数据必须来自工具。
-不要自己猜测数据。",
+   All prices and spending data must come from tools.
+   Do not guess any data.",
         &toolbox,
     )
     .await?;
-    println!("回答: {result}");
+   println!("Answer: {result}");
 
-    // // 测试 1：查询某个月某个分类的花销（应该会触发 get_summary 或 list_expenses）
-    // println!("\n=== 测试 1：查询七月 Food 分类花销 ===");
+   // // Test 1: query spending for a category in a month (should trigger
+   // // get_summary or list_expenses).
+   // println!("\n=== Test 1: query July Food spending ===");
     // let result = chat_complete(
     //     GPT_4O_MINI_MODEL,
     //     Some(&system_prompt),
-    //     "我七月在 Food 这个分类上一共花了多少钱？",
+   //     "How much did I spend on Food in July?",
     //     &toolbox,
     // )
     // .await?;
-    // println!("回答: {result}");
+   // println!("Answer: {result}");
 
-    // // 测试 2：新增一笔支出（应该会触发 create_expense）
-    // println!("\n=== 测试 2：新增一笔支出 ===");
+   // // Test 2: add an expense (should trigger create_expense).
+   // println!("\n=== Test 2: add an expense ===");
     // let result = chat_complete(
     //     GPT_4O_MINI_MODEL,
     //     Some(&system_prompt),
-    //     "帮我记一笔支出：今天在星巴克买咖啡花了 28 块钱，分类是 Food。然后在帮我统计一下七月份在food这个分类上的开销。",
+   //     "Record an expense: I spent 28 yuan on coffee at Starbucks today in the Food category. Then summarize my July Food spending.",
     //     &toolbox,
     // )
     // .await?;
-    // println!("回答: {result}");
+   // println!("Answer: {result}");
 
-    // // 测试 3：查看七月整体费用汇总（应该会触发 get_summary，
-    // // 而且能看到测试 2 新增的那一笔也算进去了 —— 因为
-    // // expense-tracker-api 的数据在进程内存里是共享的，
-    // // 不会因为每次请求而重置）
-    // println!("\n=== 测试 3：七月整体费用汇总 ===");
+   // // Test 3: view the overall July expense summary (should trigger
+   // // get_summary and include the expense added in Test 2 because
+   // // expense-tracker-api shares data in process memory rather than
+   // // resetting it for every request).
+   // println!("\n=== Test 3: overall July expense summary ===");
     // let result = chat_complete(
     //     GPT_4O_MINI_MODEL,
     //     Some(&system_prompt),
-    //     "帮我总结一下七月的费用情况，按分类列出来。",
+   //     "Summarize my July expenses by category.",
     //     &toolbox,
     // )
     // .await?;
-    // println!("回答: {result}");
+   // println!("Answer: {result}");
 
     Ok(())
 }

@@ -14,14 +14,14 @@ async fn main() -> anyhow::Result<()> {
 
     let agent = Agent::new(
         GPT_4O_MINI_MODEL,
-        Some("你是一个善用网页搜索的助手".to_string()),
+        Some("You are an assistant who makes good use of web search.".to_string()),
         toolbox,
     )
     .with_max_steps(5)
     .with_after_tool_callback(Arc::new(SearchCompressorCallback));
 
-    let result = agent.run("2026世界人工智能大会 WAIC 有什么亮点？").await?;
-    println!("\n最终回答: {}", result.output);
+    let result = agent.run("What are the highlights of the 2026 World Artificial Intelligence Conference (WAIC)?").await?;
+    println!("\nFinal answer: {}", result.output);
 
     Ok(())
 }

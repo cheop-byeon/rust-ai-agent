@@ -3,31 +3,31 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::{ErrorData as McpError, ServiceExt, schemars, tool, tool_router, transport::stdio};
 use serde::{Deserialize, Serialize};
 
-// ---------- 参数 / 请求体类型 ----------
+// ---------- Parameter and request-body types ----------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ListExpensesParams {
-    /// 按分类筛选，比如 "Food"，大小写不敏感。不填就是不筛选，返回所有分类
+    /// Filter by category, such as "Food". Case-insensitive; omit to return all categories.
     category: Option<String>,
-    /// 按月份筛选，格式必须是 "YYYY-MM"。不填就是不筛选月份
+    /// Filter by month in "YYYY-MM" format; omit to include all months.
     month: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct GetSummaryParams {
-    /// 只统计某一个月，格式 "YYYY-MM"。不填就是统计全部历史数据
+    /// Summarize one month in "YYYY-MM" format; omit to summarize all historical data.
     month: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct GetExpenseParams {
-    /// 要查询的费用记录 id，来自 list_expenses 或 create_expense 的返回结果
+    /// Expense record ID from the result of list_expenses or create_expense.
     id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct DeleteExpenseParams {
-    /// 要删除的费用记录 id
+    /// Expense record ID to delete.
     id: String,
 }
 
@@ -36,25 +36,25 @@ struct CreateExpenseParams {
     description: String,
     amount: f64,
     category: String,
-    /// ISO 日期格式，"YYYY-MM-DD"
+    /// ISO date format: "YYYY-MM-DD".
     date: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct UpdateExpenseParams {
-    /// 要更新的费用记录 id
+    /// Expense record ID to update.
     id: String,
     description: Option<String>,
     amount: Option<f64>,
     category: Option<String>,
-    /// ISO 日期格式，"YYYY-MM-DD"
+    /// ISO date format: "YYYY-MM-DD".
     date: Option<String>,
 }
 
-/// 这里只把用户真正传进来的字段发给后端 API，
-/// 跟 expense-tracker-api 那边"局部更新"的逻辑保持一致：
-/// 没传的字段（None）会因为 skip_serializing_if 被整体跳过，
-/// 不会被序列化成 "字段": null 发过去，也就不会误把没提到的字段清空
+/// Sends only fields supplied by the user to the backend API, matching the
+/// expense-tracker-api partial-update behavior. Unspecified fields (`None`) are
+/// skipped by `skip_serializing_if` instead of being serialized as null and
+/// accidentally cleared.
 #[derive(Debug, Serialize)]
 struct UpdateExpenseBody {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,11 +67,11 @@ struct UpdateExpenseBody {
     date: Option<String>,
 }
 
-// ---------- MCP Server 本体 ----------
+// ---------- MCP server ----------
 
-// 这个 Server 不连数据库，它只是 expense-tracker-api 这个
-// axum web 服务的一个"翻译层"：每个 MCP 工具方法内部
-// 其实就是发一次 HTTP 请求过去，把结果包装成 MCP 要求的格式返回
+// This server does not connect to a database. It is an adapter for the
+// expense-tracker-api Axum web service: each MCP tool sends an HTTP request
+// and wraps the result in the format required by MCP.
 #[derive(Clone)]
 struct ExpenseServer {
     http: reqwest::Client,
@@ -83,8 +83,8 @@ impl ExpenseServer {
     fn new() -> Self {
         Self {
             http: reqwest::Client::new(),
-            // 优先读环境变量，读不到就用本地默认值，
-            // 这样以后部署到别的地方也不用改代码
+            // Prefer environment variables and fall back to local defaults so
+            // the code does not need to change when deployed elsewhere.
             base_url: std::env::var("EXPENSE_API_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
             api_key: std::env::var("EXPENSE_API_KEY")
@@ -92,11 +92,9 @@ impl ExpenseServer {
         }
     }
 
-    /// 六个工具方法共用的"响应处理"逻辑，避免每个方法都写一遍
-    /// 同样的判断。核心思路：
-    /// - 请求本身失败（网络错误等）→ 包装成 McpError
-    /// - 请求发出去了，但 API 返回非 2xx（比如 404 / 401 / 400）→ 也算 McpError
-    /// - 只有 2xx 才算成功，把响应体原样包成 CallToolResult 返回
+    /// Shared response handling for all six tools. Network failures and
+    /// non-2xx API responses become `McpError`; only 2xx responses return the
+    /// response body as a `CallToolResult`.
     async fn respond(
         result: Result<reqwest::Response, reqwest::Error>,
     ) -> Result<CallToolResult, McpError> {
@@ -106,28 +104,27 @@ impl ExpenseServer {
                 let body = resp
                     .text()
                     .await
-                    .unwrap_or_else(|e| format!("读取响应内容失败: {e}"));
+                    .unwrap_or_else(|e| format!("Failed to read response body: {e}"));
 
                 if status.is_success() {
                     Ok(CallToolResult::success(vec![ContentBlock::text(body)]))
                 } else {
                     Err(McpError::internal_error(
-                        format!("expense-tracker-api 返回了 {status}: {body}"),
+                        format!("expense-tracker-api returned {status}: {body}"),
                         None,
                     ))
                 }
             }
             Err(e) => Err(McpError::internal_error(
-                format!("请求 expense-tracker-api 失败: {e}"),
+                format!("Request to expense-tracker-api failed: {e}"),
                 None,
             )),
         }
     }
 }
 
-// #[tool_router(server_handler)] 是"单 impl 块"写法：
-// 不需要额外再写一个 impl ServerHandler for ExpenseServer，
-// 宏会把这里标了 #[tool] 的方法自动收集成一份工具清单
+// #[tool_router(server_handler)] collects the methods marked with #[tool]
+// into a tool list, so no separate ServerHandler implementation is needed.
 #[tool_router(server_handler)]
 impl ExpenseServer {
     #[tool(description = "List expenses, optionally filtered by category and/or month (YYYY-MM)")]
@@ -135,7 +132,7 @@ impl ExpenseServer {
         &self,
         Parameters(p): Parameters<ListExpensesParams>,
     ) -> Result<CallToolResult, McpError> {
-        // 只有用户真的传了 category / month，才拼到查询参数里
+        // Add only the category and month values supplied by the user.
         let mut query = vec![];
         if let Some(category) = &p.category {
             query.push(("category".to_string(), category.clone()));
@@ -175,8 +172,8 @@ impl ExpenseServer {
         &self,
         Parameters(p): Parameters<CreateExpenseParams>,
     ) -> Result<CallToolResult, McpError> {
-        // p 本身就是要发的 JSON body，字段名和 API 那边的
-        // CreateExpense 结构体是对得上的，直接 .json(&p) 就行
+        // p is already the JSON body expected by the API, so it can be sent
+        // directly with .json(&p).
         let result = self
             .http
             .post(format!("{}/expenses", self.base_url))
@@ -195,9 +192,8 @@ impl ExpenseServer {
         &self,
         Parameters(p): Parameters<UpdateExpenseParams>,
     ) -> Result<CallToolResult, McpError> {
-        // 这里特意从 UpdateExpenseParams 转成单独的 UpdateExpenseBody，
-        // 是因为 body 需要 skip_serializing_if 来跳过没填的字段，
-        // 而 id 只是用来拼 URL 路径的，不应该出现在请求体里
+        // Convert to a separate body so optional fields can be skipped. The
+        // id belongs in the URL path and must not be included in the body.
         let body = UpdateExpenseBody {
             description: p.description,
             amount: p.amount,
@@ -257,15 +253,15 @@ impl ExpenseServer {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 日志要写到 stderr，不能写到 stdout —— 因为 stdio 传输方式下，
-    // stdout 是留给 MCP 协议本身通信用的，混进普通日志会把协议搞坏
+    // Write logs to stderr, not stdout. With stdio transport, stdout is
+    // reserved for MCP protocol messages and regular logs would corrupt it.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .init();
 
     let server = ExpenseServer::new();
-    // 用 stdio 传输方式启动：这个进程会被 Client 当作子进程拉起，
-    // 通过标准输入输出跟 Client 交换消息，跟我们幻灯片里讲的一致
+    // Start with stdio transport so the client can launch this process as a
+    // child and exchange messages over standard input and output.
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
 

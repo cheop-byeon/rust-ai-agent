@@ -14,8 +14,8 @@ async fn main() -> anyhow::Result<()> {
 
     let plan = chat_complete_structured(
         GPT_4O_MINI_MODEL,
-        Some("你是一个全能的助手"),
-        "我要去美加墨世界杯观看比赛，如果安排？",
+        Some("You are a versatile assistant."),
+        "I want to attend matches at the World Cup in Canada, Mexico, and the United States. How should I plan the trip?",
     )
     .await?;
 

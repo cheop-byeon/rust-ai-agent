@@ -1,7 +1,7 @@
 # Rust AI Agent
 
 An async, library-first playground for building tool-using AI agents in Rust.
-The original repository accompanies the Bilibili series [用 Rust 构建 AI Agent](https://space.bilibili.com/361469957). This branch is a personal workspace for understanding the design and experimenting with it.
+The original repository accompanies the Bilibili series [Building AI Agents with Rust](https://space.bilibili.com/361469957). This branch is a personal workspace for understanding the design and experimenting with it.
 
 ## Design At A Glance
 

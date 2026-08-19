@@ -7,14 +7,14 @@ use rmcp::{
 };
 use tokio::process::Command;
 
-/// 对一个 MCP Server 连接的封装。内部启动了一个子进程
-/// （expense_mcp_server），通过 stdio 跟它通信。
+/// Wrapper for an MCP server connection. It starts the expense_mcp_server
+/// child process internally and communicates with it over stdio.
 pub struct McpClient {
     service: RunningService<RoleClient, ()>,
 }
 
 impl McpClient {
-    /// 把 expense_mcp_server 当子进程拉起来，并建立连接
+    /// Start expense_mcp_server as a child process and establish a connection.
     pub async fn connect() -> Result<Self> {
         let service = ()
             .serve(TokioChildProcess::new(Command::new("cargo").configure(
@@ -27,13 +27,13 @@ impl McpClient {
         Ok(Self { service })
     }
 
-    /// 拿到 server 暴露的所有工具
+    /// Retrieve all tools exposed by the server.
     pub async fn list_tools(&self) -> Result<Vec<Tool>> {
         let result = self.service.list_tools(Default::default()).await?;
         Ok(result.tools)
     }
 
-    /// 按名字调用某个工具，arguments 是一个 JSON 对象
+    /// Call a tool by name with a JSON object of arguments.
     pub async fn call_tool(&self, name: &str, arguments: serde_json::Value) -> Result<String> {
         let params = CallToolRequestParams::new(name.to_string())
             .with_arguments(arguments.as_object().cloned().unwrap_or_default());

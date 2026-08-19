@@ -9,28 +9,30 @@ use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 加载 .env 里的环境变量（API key 等）
+    // Load environment variables from .env, including API keys.
     dotenvy::dotenv()?;
 
-    // 初始化日志，方便观察 web_search 内部的请求过程
+    // Initialize logging to observe requests made by web_search.
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // 第 1 步：准备一次「宽泛」的网页搜索——世界杯最佳射手这个话题
-    // 本身会牵出很多相关但不完全对题的内容（赛程、球队、进球集锦等等）
+    // Step 1: prepare a broad web search. The topic of the World Cup's top
+    // scorer can return related but less relevant content such as schedules,
+    // teams, and highlight reels.
     let web_search_args = WebSearchArgs {
-        query: "2026美加墨世界杯最佳射手".to_string(),
+        query: "top scorer of the 2026 World Cup in Canada, Mexico, and the United States".to_string(),
         max_results: 10,
         topic: "general".to_string(),
         time_range: Some("year".to_string()),
     };
 
-    // 真正发起搜索，拿到一批网页搜索结果
+    // Execute the search and collect web results.
     let output = search_web(web_search_args).await?;
 
-    // 把所有结果的标题 + 内容拼成一整段长文本，模拟「不做任何处理，直接塞给大模型」的情况
+    // Join every result's title and content into one long text to simulate
+    // passing raw search results directly to the model.
     let full_text = output
         .results
         .iter()
@@ -38,24 +40,24 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    // 大模型不是按字看文字的，而是先切成一个个「token」
-    // （token 大致等于"半个词"），API 收费、上下文长度都是按 token 算的。
+    // Language models process text as tokens rather than characters. API
+    // pricing and context length are both measured in tokens.
     //
-    // cl100k_base 是 GPT-4/3.5 那一代模型的切法，这里用它来本地估算
-    // token 数，不用真的调用 API。
+    // cl100k_base is the tokenizer used by the GPT-4/3.5 generation. Use it
+    // locally to estimate token counts without calling an API.
     //
-    // 注意：我们实际用的 gpt-4o-mini 是更新的切法（o200k_base），
-    // 数字会有点误差，但用来看"压缩前后省了多少"已经够了。
+    // The actual gpt-4o-mini model uses the newer o200k_base tokenizer, so
+    // counts may differ slightly, but they are sufficient for comparing savings.
     let enc = cl100k_base()?;
     
-    // 第 2 步：看看这一整段文本如果直接喂给大模型，要花多少 token
+    // Step 2: measure how many tokens the raw text would consume.
     let total_tokens = enc.encode_with_special_tokens(&full_text).len();
 
     println!("Total characters: {}", full_text.len());
     println!("Total tokens: {}", total_tokens);
 
-    // 第 3 步：把每条搜索结果切成 500 字长、重叠 50 字的小块
-    // 重叠是为了避免一句话正好被切断在两个块的边界上，丢失上下文
+    // Step 3: split each search result into 500-character chunks with 50
+    // characters of overlap, preserving context across chunk boundaries.
     let mut all_chunks = Vec::new();
     for result in &output.results {
         let text = format!("Title: {}\n{}", result.title, result.content);
@@ -66,22 +68,24 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Total chunks: {}", all_chunks.len());
 
-    // 第 4 步：向量检索——注意这里用的是同一个搜索词
-    // 但这次不是问整个互联网，而是在刚才切好的这堆小块里，找出真正贴题的那几段
-    // vector_search 内部会自己把 query 和每个 chunk 都转成向量，再按余弦相似度排序
-    let query = "2026美加墨世界杯最佳射手";
+    // Step 4: vector search. Use the same query, but search the chunks created
+    // above instead of the entire internet. vector_search embeds the query and
+    // each chunk, then ranks them by cosine similarity.
+    let query = "top scorer of the 2026 World Cup in Canada, Mexico, and the United States";
     let hits = vector_search(query, &all_chunks, 3).await?;
 
     println!("\nQuery: '{query}'");
     println!("{}", "=".repeat(60));
     for (i, hit) in hits.iter().enumerate() {
-        // 用 chars() 而不是字节切片，避免在中文字符中间截断导致乱码
+        // Use chars() instead of byte slicing so multibyte characters are not
+        // cut in the middle.
         let preview: String = hit.text.chars().take(300).collect();
         println!("\n[{}] Similarity: {:.3}", i + 1, hit.similarity);
         println!("{preview}");
     }
 
-    // 第 5 步：只留下最相关的 3 段，拼起来，看看 token 数降到了多少
+    // Step 5: keep only the three most relevant chunks and measure the token
+    // reduction after compression.
     let selected_text = hits
         .iter()
         .map(|hit| hit.text.clone())
@@ -92,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
     println!("\n{}", "=".repeat(60));
     println!("Total tokens: {total_tokens}");
     println!("Selected tokens: {selected_tokens}");
-    // 压缩率：从「全部塞进去」到「只留最相关的几段」，省下了多少 token
+    // Savings from sending all results to sending only the most relevant chunks.
     println!(
         "Savings rate: {:.1}%",
         (1.0 - selected_tokens as f64 / total_tokens as f64) * 100.0

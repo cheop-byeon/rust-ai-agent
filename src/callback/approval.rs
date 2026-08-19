@@ -28,12 +28,12 @@ impl BeforeToolCallback for ApprovalCallback {
             return None;
         }
 
-        println!("\n⚠️  即将执行高危操作");
-        println!("工具: {}", tool_call.name);
-        println!("参数: {}", tool_call.arguments);
+        println!("\n⚠️  About to execute a dangerous operation");
+        println!("Tool: {}", tool_call.name);
+        println!("Arguments: {}", tool_call.arguments);
 
         let approved = tokio::task::spawn_blocking(|| {
-            print!("是否执行？(y/n): ");
+            print!("Execute? (y/n): ");
             std::io::stdout().flush().ok();
             let mut input = String::new();
             std::io::stdin().read_line(&mut input).ok();
@@ -43,10 +43,10 @@ impl BeforeToolCallback for ApprovalCallback {
         .unwrap_or(false);
 
         if approved {
-            println!("✅ 已批准，继续执行...\n");
+            println!("✅ Approved, continuing...\n");
             None
         } else {
-            println!("❌ 已拒绝，跳过执行\n");
+            println!("❌ Denied, skipping execution\n");
             Some(format!("User denied execution of {}", tool_call.name))
         }
     }

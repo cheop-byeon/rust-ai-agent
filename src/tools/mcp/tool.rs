@@ -4,10 +4,10 @@ use serde_json::Value;
 
 use crate::{agent::ExecutionContext, tools::{mcp::client::McpClient, tool::Tool}};
 
-/// 把一个 MCP 工具包装成 Agent 认识的 Tool trait。
-/// 一个 McpTool 对应 MCP Server 的 list_tools() 里的一条工具信息，
-/// execute 的时候再转发给 McpClient::call_tool，
-/// 对 Agent loop 来说，它跟 calculator / web_search 没有任何区别。
+/// Wraps an MCP tool in the Tool trait understood by the Agent.
+/// Each McpTool represents one entry from an MCP server's list_tools() result.
+/// Execution is forwarded to McpClient::call_tool, so the Agent loop treats it
+/// exactly like calculator or web_search.
 pub struct McpTool {
     client: Arc<McpClient>,
     name: String,
@@ -16,10 +16,10 @@ pub struct McpTool {
 }
 
 impl McpTool {
-    /// 从 rmcp 的 Tool（协议里的原始工具描述）转换成我们自己的 McpTool。
-    /// name / description 转成 owned String，是因为 Tool trait 要求
-    /// name(&self) -> &str 返回的引用要跟 self 的生命周期绑在一起，
-    /// 不能直接借用 rmcp::model::Tool 里 'static 的 Cow<str>。
+    /// Convert rmcp's raw protocol tool description into our McpTool.
+    /// name and description become owned Strings because Tool requires
+    /// name(&self) -> &str to return a reference tied to self's lifetime;
+    /// borrowing the 'static Cow<str> from rmcp::model::Tool is not sufficient.
     pub fn new(client: Arc<McpClient>, tool: rmcp::model::Tool) -> Self {
         let parameters = Value::Object((*tool.input_schema).clone());
 
@@ -50,10 +50,9 @@ impl Tool for McpTool {
     }
 
     async fn execute(&self, args_json: &str, _context: &ExecutionContext) -> anyhow::Result<String> {
-        // 大模型给的参数是 JSON 字符串，先解析成 Value，
-        // 再转发给 McpClient::call_tool —— 之后的事情
-        // （发给 MCP Server，Server 再转发给 expense-tracker-api）
-        // 跟这里的 execute 方法就没关系了
+        // The model provides arguments as a JSON string. Parse them into a
+        // Value and forward them to McpClient::call_tool. The downstream
+        // request to the MCP server and expense-tracker-api is handled there.
         let args: Value = serde_json::from_str(args_json)?;
         self.client.call_tool(&self.name, args).await
     }

@@ -17,12 +17,12 @@ async fn main() -> anyhow::Result<()> {
     let result = chat_complete(
         GPT_4O_MINI_MODEL,
         Some(
-            r#"你是一个全能的助手。今天的日期是2026年7月22日。
-你可以使用工具来搜索最新信息。
-重要：当工具返回搜索结果时，你必须直接使用这些结果来回答，不要说"信息尚未公布"或"我不知道"。
-你的训练数据有截止日期，可能已经过时，请始终优先信任工具返回的内容。"#,
-        ),
-        "2026世界杯决赛的比分是？",
+                r#"You are a versatile assistant. Today's date is July 22, 2026.
+        You can use tools to search for current information.
+        Important: when a tool returns search results, use those results directly in your answer. Do not say "the information has not been published" or "I don't know".
+        Your training data has a cutoff date and may be outdated, so always prioritize information returned by tools."#,
+            ),
+            "What was the score of the 2026 World Cup final?",
         &toolbox,
     )
     .await?;
